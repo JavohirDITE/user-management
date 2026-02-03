@@ -16,7 +16,7 @@ var connectionString = Environment.GetEnvironmentVariable("DATABASE_URL")
     ?? builder.Configuration.GetConnectionString("DefaultConnection") 
     ?? throw new InvalidOperationException("Connection string not found");
 
-if (connectionString.StartsWith("postgres://"))
+if (connectionString.StartsWith("postgres://") || connectionString.StartsWith("postgresql://"))
 {
     var uri = new Uri(connectionString);
     var userInfo = uri.UserInfo.Split(':');
