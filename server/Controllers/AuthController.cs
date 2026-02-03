@@ -33,7 +33,6 @@ public class AuthController : ControllerBase
         _logger = logger;
     }
 
-    // Helper function for generating unique identifiers
     private static string GetUniqIdValue(string prefix = "id")
     {
         return $"{prefix}_{DateTime.UtcNow.Ticks}_{Guid.NewGuid():N}";
@@ -42,7 +41,6 @@ public class AuthController : ControllerBase
     [HttpPost("register")]
     public async Task<ActionResult<AuthResponseDto>> Register([FromBody] RegisterDto dto)
     {
-        // Basic validation
         if (string.IsNullOrWhiteSpace(dto.Email))
             return BadRequest(new { message = "Email is required" });
         
@@ -62,10 +60,6 @@ public class AuthController : ControllerBase
             CreatedAt = DateTime.UtcNow
         };
 
-        // Here I don't check if email exists in code - 
-        // instead I rely on the database unique index to enforce uniqueness.
-        // If someone tries to register with existing email, PostgreSQL will throw
-        // an exception with code 23505 which I catch below
         try
         {
             _context.Users.Add(user);
@@ -73,12 +67,10 @@ public class AuthController : ControllerBase
         }
         catch (DbUpdateException ex) when (IsUniqueViolation(ex))
         {
-            // Database threw unique constraint violation - email already exists
             _logger.LogWarning("Duplicate email registration attempt: {Email}", dto.Email);
             return Conflict(new { message = "User with this email already exists" });
         }
 
-        // Send verification email in background (fire and forget)
         _ = _emailService.SendVerificationEmailAsync(user.Email, user.VerificationToken!);
 
         var token = GenerateJwtToken(user);
@@ -101,11 +93,9 @@ public class AuthController : ControllerBase
         if (user == null || !BCrypt.Net.BCrypt.Verify(dto.Password, user.PasswordHash))
             return Unauthorized(new { message = "Invalid email or password" });
 
-        // Blocked users can't login
         if (user.Status == "blocked")
             return Forbid();
 
-        // Update last login time
         user.LastLogin = DateTime.UtcNow;
         await _context.SaveChangesAsync();
 
@@ -129,7 +119,6 @@ public class AuthController : ControllerBase
         if (user.Status == "active")
             return Ok(new { message = "Email already verified" });
 
-        // If user is blocked, keep them blocked
         if (user.Status == "blocked")
             return Ok(new { message = "User is blocked" });
 
@@ -140,21 +129,22 @@ public class AuthController : ControllerBase
         return Ok(new { message = "Email verified successfully" });
     }
 
-    // Checks if the database exception is a unique constraint violation
-    // PostgreSQL uses error code 23505 for this
     private bool IsUniqueViolation(DbUpdateException ex)
     {
         if (ex.InnerException is PostgresException pgEx)
         {
-            return pgEx.SqlState == "23505"; // unique_violation
+            return pgEx.SqlState == "23505";
         }
         return false;
     }
 
     private string GenerateJwtToken(User user)
     {
-        var key = new SymmetricSecurityKey(
-            Encoding.UTF8.GetBytes(_config["Jwt:Key"] ?? "SuperSecretKeyThatIsAtLeast32Characters!"));
+        var jwtKey = Environment.GetEnvironmentVariable("JWT_KEY") 
+            ?? _config["Jwt:Key"] 
+            ?? "SuperSecretKeyThatIsAtLeast32Characters!";
+        
+        var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey));
         
         var claims = new[]
         {
